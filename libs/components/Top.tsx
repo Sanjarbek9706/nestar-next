@@ -239,7 +239,10 @@ const Top = () => {
 								>
 									<Box component={'div'} className={'flag'}>
 										{lang !== null ? (
-											<img src={`/img/flag/lang${lang}.png`} alt={'usaFlag'} />
+											<img
+												src={lang === 'uz' ? '/img/flag/languz.svg' : `/img/flag/lang${lang}.png`}
+												alt={'selectedLanguageFlag'}
+											/>
 										) : (
 											<img src={`/img/flag/langen.png`} alt={'usaFlag'} />
 										)}
@@ -262,7 +265,7 @@ const Top = () => {
 											className="img-flag"
 											src={'/img/flag/langkr.png'}
 											onClick={langChoice}
-											id="uz"
+												id="kr"
 											alt={'koreanFlag'}
 										/>
 										{t('Korean')}
@@ -277,6 +280,16 @@ const Top = () => {
 										/>
 										{t('Russian')}
 									</MenuItem>
+										<MenuItem disableRipple onClick={langChoice} id="uz">
+											<img
+												className="img-flag"
+												src={'/img/flag/languz.svg'}
+												onClick={langChoice}
+												id="uz"
+												alt={'uzbekFlag'}
+											/>
+											{t('Uzbek')}
+										</MenuItem>
 								</StyledMenu>
 							</div>
 						</Box>
