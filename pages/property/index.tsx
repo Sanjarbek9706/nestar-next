@@ -11,6 +11,11 @@ import { Property } from '../../libs/types/property/property';
 import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { Direction } from '../../libs/enums/common.enum';
+import { useMutation, useQuery } from '@apollo/client';
+import { GET_PROPERTIES } from '../../apollo/user/query';
+import { T } from '../../libs/types/common';
+import { LIKE_TARGET_PROPERTY } from '../../apollo/user/mutation';
+import { sweetMixinErrorAlert } from '../../libs/sweetAlert';
 
 export const getStaticProps = async ({ locale }: any) => ({
 	props: {
@@ -21,41 +26,60 @@ export const getStaticProps = async ({ locale }: any) => ({
 const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 	const device = useDeviceDetect();
 	const router = useRouter();
-	const [searchFilter, setSearchFilter] = useState<PropertiesInquiry>(
-		router?.query?.input ? JSON.parse(router?.query?.input as string) : initialInput,
-	);
-	const [properties, setProperties] = useState<Property[]>([]);
-	const [total, setTotal] = useState<number>(0);
-	const [currentPage, setCurrentPage] = useState<number>(1);
+	const [searchFilter, setSearchFilter] = useState<PropertiesInquiry>(initialInput);
+	const [likeTargetProperty] = useMutation(LIKE_TARGET_PROPERTY);
 	const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 	const [sortingOpen, setSortingOpen] = useState(false);
 	const [filterSortName, setFilterSortName] = useState('New');
 
 	/** APOLLO REQUESTS **/
+	const {
+		loading: getPropertiesLoading,
+		data: getPropertiesData,
+		error: getPropertiesError,
+		refetch: getPropertiesRefetch,
+	} = useQuery(GET_PROPERTIES, {
+		fetchPolicy: 'network-only',
+		variables: { input: searchFilter },
+		notifyOnNetworkStatusChange: true,
+	});
+	// Xato yoki yuklanishda eski natijalarni yangi filtr natijasi deb ko'rsatmaymiz.
+	const properties: Property[] =
+		getPropertiesError || getPropertiesLoading ? [] : getPropertiesData?.getProperties?.list ?? [];
+	const total = getPropertiesData?.getProperties?.metaCounter?.[0]?.total ?? 0;
+	const currentPage = searchFilter.page ?? 1;
 
-	/** LIFECYCLES **/
 	useEffect(() => {
-		if (router.query.input) {
-			const inputObj = JSON.parse(router?.query?.input as string);
-			setSearchFilter(inputObj);
+		if (!router.isReady) return;
+		// URL o'zgarsa (Back/Forward ham), filtr va sahifa birga yangilanadi.
+		try {
+			const input = typeof router.query.input === 'string' ? JSON.parse(router.query.input) : initialInput;
+			setSearchFilter(input);
+			setFilterSortName(
+				input.sort === 'propertyPrice' ? (input.direction === Direction.ASC ? 'Lowest Price' : 'Highest Price') : 'New',
+			);
+		} catch {
+			setSearchFilter(initialInput);
 		}
+	}, [router.isReady, router.query.input, initialInput]);
 
-		setCurrentPage(searchFilter.page === undefined ? 1 : searchFilter.page);
-	}, [router]);
+	const likePropertyHandler = async (user: T, id: string) => {
+		try {
+			if (!user?._id) throw new Error('Please log in to like a property.');
+			// Yurakcha bosilganda like saqlanadi, keyin soni va belgisi yangilanadi.
+			await likeTargetProperty({ variables: { input: id } });
+			await getPropertiesRefetch();
+		} catch (error: any) {
+			await sweetMixinErrorAlert(error.message);
+		}
+	};
 
-	useEffect(() => {}, [searchFilter]);
-
-	/** HANDLERS **/
 	const handlePaginationChange = async (event: ChangeEvent<unknown>, value: number) => {
-		searchFilter.page = value;
 		await router.push(
-			`/property?input=${JSON.stringify(searchFilter)}`,
-			`/property?input=${JSON.stringify(searchFilter)}`,
-			{
-				scroll: false,
-			},
+			{ pathname: '/property', query: { input: JSON.stringify({ ...searchFilter, page: value }) } },
+			undefined,
+			{ scroll: false },
 		);
-		setCurrentPage(value);
 	};
 
 	const sortingClickHandler = (e: MouseEvent<HTMLElement>) => {
@@ -68,22 +92,17 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 		setAnchorEl(null);
 	};
 
-	const sortingHandler = (e: React.MouseEvent<HTMLLIElement>) => {
-		switch (e.currentTarget.id) {
-			case 'new':
-				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: Direction.ASC });
-				setFilterSortName('New');
-				break;
-			case 'lowest':
-				setSearchFilter({ ...searchFilter, sort: 'propertyPrice', direction: Direction.ASC });
-				setFilterSortName('Lowest Price');
-				break;
-			case 'highest':
-				setSearchFilter({ ...searchFilter, sort: 'propertyPrice', direction: Direction.DESC });
-				setFilterSortName('Highest Price');
-		}
+	const sortingHandler = async (e: React.MouseEvent<HTMLLIElement>) => {
+		const choice = e.currentTarget.id;
+		const sort = choice === 'new' ? 'createdAt' : 'propertyPrice';
+		const direction = choice === 'lowest' ? Direction.ASC : Direction.DESC;
 		setSortingOpen(false);
 		setAnchorEl(null);
+		await router.push(
+			{ pathname: '/property', query: { input: JSON.stringify({ ...searchFilter, page: 1, sort, direction }) } },
+			undefined,
+			{ scroll: false },
+		);
 	};
 
 	if (device === 'mobile') {
@@ -129,18 +148,26 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 					<Stack className={'property-page'}>
 						<Stack className={'filter-config'}>
 							{/* @ts-ignore */}
-							<Filter searchFilter={searchFilter} setSearchFilter={setSearchFilter} initialInput={initialInput} />
+							<Filter searchFilter={searchFilter} initialInput={initialInput} />
 						</Stack>
 						<Stack className="main-config" mb={'76px'}>
 							<Stack className={'list-config'}>
-								{properties?.length === 0 ? (
+								{getPropertiesError ? (
+									<Typography role="alert" color="error">
+										Properties could not be loaded. Please try again.
+									</Typography>
+								) : getPropertiesLoading ? (
+									<Typography role="status">Loading properties...</Typography>
+								) : properties.length === 0 ? (
 									<div className={'no-data'}>
 										<img src="/img/icons/icoAlert.svg" alt="" />
 										<p>No Properties found!</p>
 									</div>
 								) : (
 									properties.map((property: Property) => {
-										return <PropertyCard property={property} key={property?._id} />;
+										return (
+											<PropertyCard property={property} key={property?._id} likePropertyHandler={likePropertyHandler} />
+										);
 									})
 								)}
 							</Stack>
