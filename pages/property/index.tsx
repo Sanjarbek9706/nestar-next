@@ -10,12 +10,12 @@ import { PropertiesInquiry } from '../../libs/types/property/property.input';
 import { Property } from '../../libs/types/property/property';
 import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
-import { Direction } from '../../libs/enums/common.enum';
+import { Direction, Message } from '../../libs/enums/common.enum';
 import { useMutation, useQuery } from '@apollo/client';
 import { GET_PROPERTIES } from '../../apollo/user/query';
 import { T } from '../../libs/types/common';
 import { LIKE_TARGET_PROPERTY } from '../../apollo/user/mutation';
-import { sweetMixinErrorAlert } from '../../libs/sweetAlert';
+import { sweetMixinErrorAlert, sweetTopSmallSuccessAlert } from '../../libs/sweetAlert';
 
 export const getStaticProps = async ({ locale }: any) => ({
 	props: {
@@ -26,60 +26,75 @@ export const getStaticProps = async ({ locale }: any) => ({
 const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 	const device = useDeviceDetect();
 	const router = useRouter();
-	const [searchFilter, setSearchFilter] = useState<PropertiesInquiry>(initialInput);
-	const [likeTargetProperty] = useMutation(LIKE_TARGET_PROPERTY);
+	const [searchFilter, setSearchFilter] = useState<PropertiesInquiry>(
+		router?.query?.input ? JSON.parse(router?.query?.input as string) : initialInput,
+	);
+	const [properties, setProperties] = useState<Property[]>([]);
+	const [total, setTotal] = useState<number>(0);
+	const [currentPage, setCurrentPage] = useState<number>(1);
 	const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 	const [sortingOpen, setSortingOpen] = useState(false);
 	const [filterSortName, setFilterSortName] = useState('New');
 
 	/** APOLLO REQUESTS **/
-	const {
-		loading: getPropertiesLoading,
-		data: getPropertiesData,
+
+	const [likeTargetProperty] = useMutation(LIKE_TARGET_PROPERTY);
+
+	const { loading: getPropertiesLoading,
+		data: getPropertiesData, 
 		error: getPropertiesError,
-		refetch: getPropertiesRefetch,
-	} = useQuery(GET_PROPERTIES, {
-		fetchPolicy: 'network-only',
-		variables: { input: searchFilter },
-		notifyOnNetworkStatusChange: true,
-	});
-	// Xato yoki yuklanishda eski natijalarni yangi filtr natijasi deb ko'rsatmaymiz.
-	const properties: Property[] =
-		getPropertiesError || getPropertiesLoading ? [] : getPropertiesData?.getProperties?.list ?? [];
-	const total = getPropertiesData?.getProperties?.metaCounter?.[0]?.total ?? 0;
-	const currentPage = searchFilter.page ?? 1;
+		refetch: getPropertiesRefetch } = useQuery(GET_PROPERTIES, {
+			fetchPolicy: "network-only",
+			variables: { input: searchFilter },
+			notifyOnNetworkStatusChange: true,
+			onCompleted: (data: T) => {
+				setProperties(data?.getProperties?.list)
+				setTotal(data?.getProperties?.total);
+			}
 
+		})
+
+	/** LIFECYCLES **/
 	useEffect(() => {
-		if (!router.isReady) return;
-		// URL o'zgarsa (Back/Forward ham), filtr va sahifa birga yangilanadi.
-		try {
-			const input = typeof router.query.input === 'string' ? JSON.parse(router.query.input) : initialInput;
-			setSearchFilter(input);
-			setFilterSortName(
-				input.sort === 'propertyPrice' ? (input.direction === Direction.ASC ? 'Lowest Price' : 'Highest Price') : 'New',
-			);
-		} catch {
-			setSearchFilter(initialInput);
+		if (router.query.input) {
+			const inputObj = JSON.parse(router?.query?.input as string);
+			setSearchFilter(inputObj);
 		}
-	}, [router.isReady, router.query.input, initialInput]);
 
+		setCurrentPage(searchFilter.page === undefined ? 1 : searchFilter.page);
+	}, [router]);
+
+	useEffect(() => { },
+
+		[searchFilter]);
+
+	/** HANDLERS **/
 	const likePropertyHandler = async (user: T, id: string) => {
 		try {
-			if (!user?._id) throw new Error('Please log in to like a property.');
-			// Yurakcha bosilganda like saqlanadi, keyin soni va belgisi yangilanadi.
+			if (!id) return;
+			if (!user._id) throw new Error(Message.NOT_AUTHENTICATED);
+			// Execute like
 			await likeTargetProperty({ variables: { input: id } });
-			await getPropertiesRefetch();
-		} catch (error: any) {
-			await sweetMixinErrorAlert(error.message);
+			// Refetch
+			await getPropertiesRefetch({ input: initialInput });
+
+			await sweetTopSmallSuccessAlert('Success', 800);
+		} catch (err: any) {
+			console.log('ERROR, likePropertyHandler', err);
+			sweetMixinErrorAlert(err.message).then();
 		}
 	};
 
 	const handlePaginationChange = async (event: ChangeEvent<unknown>, value: number) => {
+		searchFilter.page = value;
 		await router.push(
-			{ pathname: '/property', query: { input: JSON.stringify({ ...searchFilter, page: value }) } },
-			undefined,
-			{ scroll: false },
+			`/property?input=${JSON.stringify(searchFilter)}`,
+			`/property?input=${JSON.stringify(searchFilter)}`,
+			{
+				scroll: false,
+			},
 		);
+		setCurrentPage(value);
 	};
 
 	const sortingClickHandler = (e: MouseEvent<HTMLElement>) => {
@@ -92,17 +107,22 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 		setAnchorEl(null);
 	};
 
-	const sortingHandler = async (e: React.MouseEvent<HTMLLIElement>) => {
-		const choice = e.currentTarget.id;
-		const sort = choice === 'new' ? 'createdAt' : 'propertyPrice';
-		const direction = choice === 'lowest' ? Direction.ASC : Direction.DESC;
+	const sortingHandler = (e: React.MouseEvent<HTMLLIElement>) => {
+		switch (e.currentTarget.id) {
+			case 'new':
+				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: Direction.ASC });
+				setFilterSortName('New');
+				break;
+			case 'lowest':
+				setSearchFilter({ ...searchFilter, sort: 'propertyPrice', direction: Direction.ASC });
+				setFilterSortName('Lowest Price');
+				break;
+			case 'highest':
+				setSearchFilter({ ...searchFilter, sort: 'propertyPrice', direction: Direction.DESC });
+				setFilterSortName('Highest Price');
+		}
 		setSortingOpen(false);
 		setAnchorEl(null);
-		await router.push(
-			{ pathname: '/property', query: { input: JSON.stringify({ ...searchFilter, page: 1, sort, direction }) } },
-			undefined,
-			{ scroll: false },
-		);
 	};
 
 	if (device === 'mobile') {
@@ -152,22 +172,14 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 						</Stack>
 						<Stack className="main-config" mb={'76px'}>
 							<Stack className={'list-config'}>
-								{getPropertiesError ? (
-									<Typography role="alert" color="error">
-										Properties could not be loaded. Please try again.
-									</Typography>
-								) : getPropertiesLoading ? (
-									<Typography role="status">Loading properties...</Typography>
-								) : properties.length === 0 ? (
+								{properties?.length === 0 ? (
 									<div className={'no-data'}>
 										<img src="/img/icons/icoAlert.svg" alt="" />
 										<p>No Properties found!</p>
 									</div>
 								) : (
 									properties.map((property: Property) => {
-										return (
-											<PropertyCard property={property} key={property?._id} likePropertyHandler={likePropertyHandler} />
-										);
+										return <PropertyCard property={property} likePropertyHandler={likePropertyHandler} key={property?._id} />;
 									})
 								)}
 							</Stack>
