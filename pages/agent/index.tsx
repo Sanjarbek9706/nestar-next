@@ -8,7 +8,15 @@ import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownR
 import AgentCard from '../../libs/components/common/AgentCard';
 import { useRouter } from 'next/router';
 import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
+import { useMutation, useQuery } from '@apollo/client';
+import { GET_AGENTS } from '../../apollo/user/query';
+import { LIKE_TARGET_MEMBER } from '../../apollo/user/mutation';
+import { AgentsInquiry } from '../../libs/types/member/member.input';
+import { Direction, Message } from '../../libs/enums/common.enum';
+import { T } from '../../libs/types/common';
+import { sweetMixinErrorAlert, sweetTopSmallSuccessAlert } from '../../libs/sweetAlert';
 import { Member } from '../../libs/types/member/member';
+import { Messages } from '../../libs/config';
 
 export const getStaticProps = async ({ locale }: any) => ({
 	props: {
@@ -16,14 +24,13 @@ export const getStaticProps = async ({ locale }: any) => ({
 	},
 });
 
-const AgentList: NextPage = ({ initialInput, ...props }: any) => {
+const AgentList: NextPage = ({ initialInput }: any) => {
 	const device = useDeviceDetect();
 	const router = useRouter();
-	const [anchorEl2, setAnchorEl2] = useState<null | HTMLElement>(null);
 	const [filterSortName, setFilterSortName] = useState('Recent');
 	const [sortingOpen, setSortingOpen] = useState(false);
 	const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-	const [searchFilter, setSearchFilter] = useState<any>(
+	const [searchFilter, setSearchFilter] = useState<AgentsInquiry>(
 		router?.query?.input ? JSON.parse(router?.query?.input as string) : initialInput,
 	);
 	const [agents, setAgents] = useState<Member[]>([]);
@@ -32,6 +39,22 @@ const AgentList: NextPage = ({ initialInput, ...props }: any) => {
 	const [searchText, setSearchText] = useState<string>('');
 
 	/** APOLLO REQUESTS **/
+	const [likeTargetMember] = useMutation(LIKE_TARGET_MEMBER);
+
+	const {
+		loading: getAgentsLoading,
+		error: getAgentsError,
+		refetch: getAgentsRefetch,
+	} = useQuery(GET_AGENTS, {
+		fetchPolicy: 'network-only',
+		variables: { input: searchFilter },
+		notifyOnNetworkStatusChange: true,
+		onCompleted: (data: T) => {
+			setAgents(data?.getAgents?.list ?? []);
+			setTotal(data?.getAgents?.metaCounter?.[0]?.total ?? 0);
+		},
+	});
+
 	/** LIFECYCLES **/
 	useEffect(() => {
 		if (router.query.input) {
@@ -57,24 +80,24 @@ const AgentList: NextPage = ({ initialInput, ...props }: any) => {
 	const sortingHandler = (e: React.MouseEvent<HTMLLIElement>) => {
 		switch (e.currentTarget.id) {
 			case 'recent':
-				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: 'DESC' });
+				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: Direction.DESC });
 				setFilterSortName('Recent');
 				break;
 			case 'old':
-				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: 'ASC' });
+				setSearchFilter({ ...searchFilter, sort: 'createdAt', direction: Direction.ASC });
 				setFilterSortName('Oldest order');
 				break;
 			case 'likes':
-				setSearchFilter({ ...searchFilter, sort: 'memberLikes', direction: 'DESC' });
+				setSearchFilter({ ...searchFilter, sort: 'memberLikes', direction: Direction.DESC });
 				setFilterSortName('Likes');
 				break;
 			case 'views':
-				setSearchFilter({ ...searchFilter, sort: 'memberViews', direction: 'DESC' });
+				setSearchFilter({ ...searchFilter, sort: 'memberViews', direction: Direction.DESC });
 				setFilterSortName('Views');
 				break;
 		}
 		setSortingOpen(false);
-		setAnchorEl2(null);
+		setAnchorEl(null);
 	};
 
 	const paginationChangeHandler = async (event: ChangeEvent<unknown>, value: number) => {
@@ -83,6 +106,19 @@ const AgentList: NextPage = ({ initialInput, ...props }: any) => {
 			scroll: false,
 		});
 		setCurrentPage(value);
+	};
+
+	const likeMemberHandler = async (user: T, id: string) => {
+		try {
+			if (!id) return;
+			if (!user._id) throw new Error(Messages.error2);
+			await likeTargetMember({ variables: { input: id } });
+			await getAgentsRefetch({ input: searchFilter });
+			await sweetTopSmallSuccessAlert('Success', 800);
+		} catch (err: any) {
+			console.log('ERROR, likeMemberHandler', err.message);
+			sweetMixinErrorAlert(err.message).then();
+		}
 	};
 
 	if (device === 'mobile') {
@@ -102,7 +138,8 @@ const AgentList: NextPage = ({ initialInput, ...props }: any) => {
 									if (event.key == 'Enter') {
 										setSearchFilter({
 											...searchFilter,
-											search: { ...searchFilter.search, text: searchText },
+											page: 1,
+											search: { ...searchFilter.search, text: searchText.trim() },
 										});
 									}
 								}}
@@ -132,33 +169,51 @@ const AgentList: NextPage = ({ initialInput, ...props }: any) => {
 						</Box>
 					</Stack>
 					<Stack className={'card-wrap'}>
-						{agents?.length === 0 ? (
+						{getAgentsLoading ? (
+							<div className={'no-data'} role="status">
+								Loading agents...
+							</div>
+						) : getAgentsError ? (
+							<div className={'no-data'} role="alert">
+								<p>Unable to load agents.</p>
+								<Button
+									onClick={() => {
+										void getAgentsRefetch();
+									}}
+								>
+									Retry
+								</Button>
+							</div>
+						) : agents?.length === 0 ? (
 							<div className={'no-data'}>
 								<img src="/img/icons/icoAlert.svg" alt="" />
 								<p>No Agents found!</p>
 							</div>
 						) : (
 							agents.map((agent: Member) => {
-								return <AgentCard agent={agent} key={agent._id} />;
+								return <AgentCard agent={agent} likeMemberHandler={likeMemberHandler} key={agent._id} />;
 							})
 						)}
 					</Stack>
 					<Stack className={'pagination'}>
 						<Stack className="pagination-box">
-							{agents.length !== 0 && Math.ceil(total / searchFilter.limit) > 1 && (
-								<Stack className="pagination-box">
-									<Pagination
-										page={currentPage}
-										count={Math.ceil(total / searchFilter.limit)}
-										onChange={paginationChangeHandler}
-										shape="circular"
-										color="primary"
-									/>
-								</Stack>
-							)}
+							{!getAgentsLoading &&
+								!getAgentsError &&
+								agents.length !== 0 &&
+								Math.ceil(total / searchFilter.limit) > 1 && (
+									<Stack className="pagination-box">
+										<Pagination
+											page={currentPage}
+											count={Math.ceil(total / searchFilter.limit)}
+											onChange={paginationChangeHandler}
+											shape="circular"
+											color="primary"
+										/>
+									</Stack>
+								)}
 						</Stack>
 
-						{agents.length !== 0 && (
+						{!getAgentsLoading && !getAgentsError && agents.length !== 0 && (
 							<span>
 								Total {total} agent{total > 1 ? 's' : ''} available
 							</span>
