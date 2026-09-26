@@ -5,6 +5,11 @@ import { Pagination, Stack, Typography } from '@mui/material';
 import PropertyCard from '../property/PropertyCard';
 import { Property } from '../../types/property/property';
 import { T } from '../../types/common';
+import { useMutation, useQuery } from '@apollo/client';
+import { GET_FAVORITES } from '../../../apollo/user/query';
+import { LIKE_TARGET_PROPERTY } from '../../../apollo/user/mutation';
+import { Message } from '../../enums/common.enum';
+import { sweetMixinErrorAlert, sweetTopSmallSuccessAlert } from '../../sweetAlert';
 
 const MyFavorites: NextPage = () => {
 	const device = useDeviceDetect();
@@ -13,10 +18,43 @@ const MyFavorites: NextPage = () => {
 	const [searchFavorites, setSearchFavorites] = useState<T>({ page: 1, limit: 6 });
 
 	/** APOLLO REQUESTS **/
+	const [likeTargetProperty] = useMutation(LIKE_TARGET_PROPERTY);
+
+	const {
+		loading: getFavoritesLoading,
+		data: getFavoritesData,
+		error: getFavoritesError,
+		refetch: getFavoritesRefetch,
+	} = useQuery(GET_FAVORITES, {
+		fetchPolicy: 'no-cache',
+		variables: { input: searchFavorites },
+		notifyOnNetworkStatusChange: true,
+		onCompleted: (data: T) => {
+			setMyFavorites(data?.getFavorites?.list ?? []);
+			setTotal(data?.getFavorites?.metaCounter?.[0]?.total ?? 0);
+		},
+	});
 
 	/** HANDLERS **/
 	const paginationHandler = (e: T, value: number) => {
 		setSearchFavorites({ ...searchFavorites, page: value });
+	};
+
+	const likePropertyHandler = async (user: T, propertyId: string) => {
+		try {
+			if (!propertyId) return;
+			if (!user?._id) throw new Error(Message.NOT_AUTHENTICATED);
+
+			await likeTargetProperty({
+				variables: { input: propertyId },
+			});
+
+			await getFavoritesRefetch({ input: searchFavorites });
+			sweetTopSmallSuccessAlert('Successfully liked property', 800);
+		} catch (err: any) {
+			console.log('Error, likePropertyHandler:', err.message);
+			sweetMixinErrorAlert(err.message);
+		}
 	};
 
 	if (device === 'mobile') {
@@ -33,7 +71,14 @@ const MyFavorites: NextPage = () => {
 				<Stack className="favorites-list-box">
 					{myFavorites?.length ? (
 						myFavorites?.map((property: Property) => {
-							return <PropertyCard property={property} myFavorites={true} />;
+							return (
+								<PropertyCard
+									property={property}
+									myFavorites={true}
+									likePropertyHandler={likePropertyHandler}
+									key={property._id}
+								/>
+							);
 						})
 					) : (
 						<div className={'no-data'}>

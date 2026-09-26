@@ -40,19 +40,20 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 
 	const [likeTargetProperty] = useMutation(LIKE_TARGET_PROPERTY);
 
-	const { loading: getPropertiesLoading,
-		data: getPropertiesData, 
+	const {
+		loading: getPropertiesLoading,
+		data: getPropertiesData,
 		error: getPropertiesError,
-		refetch: getPropertiesRefetch } = useQuery(GET_PROPERTIES, {
-			fetchPolicy: "network-only",
-			variables: { input: searchFilter },
-			notifyOnNetworkStatusChange: true,
-			onCompleted: (data: T) => {
-				setProperties(data?.getProperties?.list)
-				setTotal(data?.getProperties?.total);
-			}
-
-		})
+		refetch: getPropertiesRefetch,
+	} = useQuery(GET_PROPERTIES, {
+		fetchPolicy: 'cache-and-network',
+		variables: { input: searchFilter },
+		notifyOnNetworkStatusChange: true,
+		onCompleted: (data: T) => {
+			setProperties(data?.getProperties?.list ?? []);
+			setTotal(data?.getProperties?.metaCounter?.[0]?.total ?? 0);
+		},
+	});
 
 	/** LIFECYCLES **/
 	useEffect(() => {
@@ -64,9 +65,7 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 		setCurrentPage(searchFilter.page === undefined ? 1 : searchFilter.page);
 	}, [router]);
 
-	useEffect(() => { },
-
-		[searchFilter]);
+	useEffect(() => {}, [searchFilter]);
 
 	/** HANDLERS **/
 	const likePropertyHandler = async (user: T, id: string) => {
@@ -179,7 +178,9 @@ const PropertyList: NextPage = ({ initialInput, ...props }: any) => {
 									</div>
 								) : (
 									properties.map((property: Property) => {
-										return <PropertyCard property={property} likePropertyHandler={likePropertyHandler} key={property?._id} />;
+										return (
+											<PropertyCard property={property} likePropertyHandler={likePropertyHandler} key={property?._id} />
+										);
 									})
 								)}
 							</Stack>
