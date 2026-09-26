@@ -18,6 +18,7 @@ import MemberFollowers from '../../libs/components/member/MemberFollowers';
 import { sweetErrorHandling } from '../../libs/sweetAlert';
 import MemberFollowings from '../../libs/components/member/MemberFollowings';
 import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
+import { getJwtToken } from '../../libs/auth';
 
 export const getStaticProps = async ({ locale }: any) => ({
 	props: {
@@ -35,8 +36,9 @@ const MyPage: NextPage = () => {
 
 	/** LIFECYCLES **/
 	useEffect(() => {
-		if (!user._id) router.push('/').then();
-	}, [user]);
+		if (!router.isReady) return;
+		if (!getJwtToken()) router.replace('/').then();
+	}, [router.isReady]);
 
 	/** HANDLERS **/
 	const subscribeHandler = async (id: string, refetch: any, query: any) => {
