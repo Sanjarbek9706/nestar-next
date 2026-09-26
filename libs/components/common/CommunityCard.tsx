@@ -35,7 +35,7 @@ const CommunityCard = (props: CommunityCardProps) => {
 				query: { articleCategory: boardArticle?.articleCategory, id: boardArticle?._id },
 			},
 			undefined,
-			{ shallow: true },
+			// { shallow: true },
 		);
 	};
 
