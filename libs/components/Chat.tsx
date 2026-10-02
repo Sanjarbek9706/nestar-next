@@ -127,7 +127,7 @@ const Chat = () => {
 			socket.send(
 				JSON.stringify({
 					event: 'message',
-					data: { text: messageInput },
+					data: messageInput,
 				}),
 			);
 			setMessageInput('');
@@ -153,9 +153,8 @@ const Chat = () => {
 								<div className={'welcome'}>Welcome to Live chat!</div>
 							</Box>
 
-							{messagesList.map((ele: MessagePayload, index: number) => {
+							{messagesList.map((ele: MessagePayload) => {
 								const { text, memberData } = ele;
-								const messageKey = `${memberData?._id ?? 'guest'}-${index}`;
 
 								const memberImage = memberData?.memberImage
 									? `${REACT_APP_API_URL}/images/${memberData.memberImage}`
@@ -163,7 +162,6 @@ const Chat = () => {
 
 								return memberData?._id === user._id ? (
 									<Box
-										key={messageKey}
 										component={'div'}
 										flexDirection={'row'}
 										style={{ display: 'flex' }}
@@ -174,13 +172,7 @@ const Chat = () => {
 										<div className={'msg-right'}>{text}</div>
 									</Box>
 								) : (
-									<Box
-										key={messageKey}
-										flexDirection={'row'}
-										style={{ display: 'flex' }}
-										sx={{ m: '10px 0px' }}
-										component={'div'}
-									>
+									<Box flexDirection={'row'} style={{ display: 'flex' }} sx={{ m: '10px 0px' }} component={'div'}>
 										<Avatar alt={'jonik'} src={memberImage} />
 										<div className={'msg-left'}>{text}</div>
 									</Box>
